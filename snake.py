@@ -56,6 +56,55 @@ class Game:
     def getFeatures(self):
         features = numpy.zeros(8)
         
+        # Position de la tête du serpent
+        tete = self.serpent[0]
+        
+        # 1-4: Obstacles dans les 4 directions (haut, bas, gauche, droite)
+        # Vérifier si un obstacle est présent au-dessus
+        if tete[1] == 0 or [tete[0], tete[1]-1] in self.serpent:
+            features[0] = 1
+        
+        # Vérifier si un obstacle est présent en-dessous
+        if tete[1] == self.hauteur-1 or [tete[0], tete[1]+1] in self.serpent:
+            features[1] = 1
+        
+        # Vérifier si un obstacle est présent à gauche
+        if tete[0] == 0 or [tete[0]-1, tete[1]] in self.serpent:
+            features[2] = 1
+        
+        # Vérifier si un obstacle est présent à droite
+        if tete[0] == self.largeur-1 or [tete[0]+1, tete[1]] in self.serpent:
+            features[3] = 1
+        
+        # 5: Position relative du fruit en Y (au-dessus: 1, en-dessous: -1, même ligne: 0)
+        if self.fruit[1] < tete[1]:
+            features[4] = 1
+        elif self.fruit[1] > tete[1]:
+            features[4] = -1
+        else:
+            features[4] = 0
+        
+        # 6: Position relative du fruit en X (à droite: 1, à gauche: -1, même colonne: 0)
+        if self.fruit[0] > tete[0]:
+            features[5] = 1
+        elif self.fruit[0] < tete[0]:
+            features[5] = -1
+        else:
+            features[5] = 0
+        
+        # 7: Direction actuelle du serpent
+        features[6] = self.direction
+        
+        # 8: Distance jusqu'au bord dans la direction actuelle
+        if self.direction == 0:  # Haut
+            features[7] = tete[1]
+        elif self.direction == 1:  # Bas
+            features[7] = self.hauteur - 1 - tete[1]
+        elif self.direction == 2:  # Gauche
+            features[7] = tete[0]
+        elif self.direction == 3:  # Droite
+            features[7] = self.largeur - 1 - tete[0]
+        
         return features
     
     def print(self):
