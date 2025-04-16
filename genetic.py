@@ -26,27 +26,21 @@ def close_pool():
 def eval_single_game(params):
     game = Game(params["hauteur"], params["largeur"])
     moves_in_right_direction = 0
-    last_distance = float('inf')
+    last_distance = abs(
+        game.serpent[0][0] - game.fruit[0]) + abs(game.serpent[0][1] - game.fruit[1])
     max_steps_without_fruit = params["hauteur"] * params["largeur"]
     nn = params["nn"]
 
     while game.enCours:
         features = game.getFeatures()
-        tete = game.serpent[0]
-        distance_to_fruit = abs(
-            tete[0] - game.fruit[0]) + abs(tete[1] - game.fruit[1])
-
         game.direction = nn.predict(features)
         game.refresh()
 
         if game.enCours:
-            new_tete = game.serpent[0]
             new_distance = abs(
-                new_tete[0] - game.fruit[0]) + abs(new_tete[1] - game.fruit[1])
-
+                game.serpent[0][0] - game.fruit[0]) + abs(game.serpent[0][1] - game.fruit[1])
             if new_distance < last_distance:
                 moves_in_right_direction += 1
-
             last_distance = new_distance
 
         if game.steps > max_steps_without_fruit:
@@ -55,37 +49,41 @@ def eval_single_game(params):
     return 1000 * game.score + game.steps
 
 
-def eval(sol, gameParams):
+def eval_batch(solutions, gameParams):
     global _process_pool
 
     nbGames = gameParams["nbGames"]
     hauteur = gameParams["height"]
     largeur = gameParams["width"]
 
-    # Préparation des paramètres pour chaque partie
-    params_list = []
-    for _ in range(nbGames):
-        params = {
-            "hauteur": hauteur,
-            "largeur": largeur,
-            "nn": sol.nn
-        }
-        params_list.append(params)
+    # Préparation des paramètres pour tous les individus et leurs parties
+    all_params = []
+    for sol in solutions:
+        for _ in range(nbGames):
+            params = {
+                "hauteur": hauteur,
+                "largeur": largeur,
+                "nn": sol.nn
+            }
+            all_params.append(params)
 
-    # Initialisation du pool si nécessaire
+    # Exécution parallèle de toutes les parties
     if _process_pool is None:
         init_pool()
 
-    # Exécution parallèle des parties
-    scores = _process_pool.map(eval_single_game, params_list)
+    all_scores = _process_pool.map(eval_single_game, all_params)
 
-    # Calcul du score total
-    total_score = sum(scores)
+    # Distribution des scores aux solutions
+    for i, sol in enumerate(solutions):
+        scores = all_scores[i * nbGames:(i + 1) * nbGames]
+        total_score = sum(scores)
+        sol.score = total_score / (nbGames * hauteur * largeur * 1000)
 
-    # Normalisation du score entre 0 et 1
-    sol.score = total_score / (nbGames * hauteur * largeur * 1000)
+    return [sol.score for sol in solutions]
 
-    return sol.score
+
+def eval(sol, gameParams):
+    return eval_batch([sol], gameParams)[0]
 
 
 def optimize(taillePopulation, tailleSelection, pc, arch, gameParams, nbIterations, nbThreads, scoreMax):
@@ -113,6 +111,7 @@ def optimize(taillePopulation, tailleSelection, pc, arch, gameParams, nbIteratio
 
             # Génération de nouveaux individus par croisement et mutation
             new_individuals = []
+            children_to_evaluate = []
 
             while len(new_individuals) < taillePopulation - tailleSelection:
                 # Sélection aléatoire de deux parents parmi les meilleurs
@@ -126,14 +125,14 @@ def optimize(taillePopulation, tailleSelection, pc, arch, gameParams, nbIteratio
                 child1 = mutate(child1, mr)
                 child2 = mutate(child2, mr)
 
-                # Évaluation des enfants
-                eval(child1, gameParams)
-                eval(child2, gameParams)
-
-                # Ajout des enfants à la nouvelle population
+                # Ajout des enfants pour évaluation groupée
+                children_to_evaluate.extend([child1, child2])
                 new_individuals.append(child1)
                 if len(new_individuals) < taillePopulation - tailleSelection:
                     new_individuals.append(child2)
+
+            # Évaluation groupée des enfants
+            eval_batch(children_to_evaluate, gameParams)
 
             # Fusion de la population sélectionnée et des nouveaux individus
             population = selected + new_individuals
