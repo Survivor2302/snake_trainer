@@ -26,7 +26,7 @@ if __name__ == '__main__':
     # Test visuel, on voit le réseau jouer en temps réel
     vue = SnakeVue(gameParams["height"], gameParams["width"], 64)
     fps = pygame.time.Clock()
-    gameSpeed = 20
+    gameSpeed = 50
 
     while True:
         game = Game(gameParams["height"], gameParams["width"])

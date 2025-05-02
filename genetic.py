@@ -4,18 +4,25 @@ import multiprocessing as mp
 from NeuralNetwork import *
 from snake import *
 
-# Variable globale pour le pool de processus
+# Pool de processus global pour le parallélisme
 _process_pool = None
 
 
 def init_pool():
+    """
+    Initialise le pool de processus pour le parallélisme.
+    Crée 10 processus pour évaluer les parties en parallèle.
+    """
     global _process_pool
     if _process_pool is None:
-        # Fixé à 10 processus pour les 10 parties
         _process_pool = mp.Pool(processes=10)
 
 
 def close_pool():
+    """
+    Ferme proprement le pool de processus.
+    Attend que tous les processus soient terminés avant de continuer.
+    """
     global _process_pool
     if _process_pool is not None:
         _process_pool.close()
@@ -24,6 +31,15 @@ def close_pool():
 
 
 def eval_single_game(params):
+    """
+    Évalue un réseau de neurones sur une partie de Snake.
+
+    Args:
+        params (dict): Dictionnaire contenant les paramètres de la partie et le réseau de neurones
+
+    Returns:
+        float: Score de la partie (score * 1000 + nombre de pas)
+    """
     game = Game(params["hauteur"], params["largeur"])
     moves_in_right_direction = 0
     last_distance = abs(
@@ -50,13 +66,23 @@ def eval_single_game(params):
 
 
 def eval_batch(solutions, gameParams):
+    """
+    Évalue un lot de solutions en parallèle.
+
+    Args:
+        solutions (list): Liste des individus à évaluer
+        gameParams (dict): Paramètres du jeu
+
+    Returns:
+        list: Liste des scores normalisés des solutions
+    """
     global _process_pool
 
     nbGames = gameParams["nbGames"]
     hauteur = gameParams["height"]
     largeur = gameParams["width"]
 
-    # Préparation des paramètres pour tous les individus et leurs parties
+    # Préparation des paramètres pour l'évaluation parallèle
     all_params = []
     for sol in solutions:
         for _ in range(nbGames):
@@ -67,13 +93,13 @@ def eval_batch(solutions, gameParams):
             }
             all_params.append(params)
 
-    # Exécution parallèle de toutes les parties
+    # Exécution parallèle des parties
     if _process_pool is None:
         init_pool()
 
     all_scores = _process_pool.map(eval_single_game, all_params)
 
-    # Distribution des scores aux solutions
+    # Calcul des scores moyens normalisés
     for i, sol in enumerate(solutions):
         scores = all_scores[i * nbGames:(i + 1) * nbGames]
         total_score = sum(scores)
@@ -83,23 +109,47 @@ def eval_batch(solutions, gameParams):
 
 
 def eval(sol, gameParams):
+    """
+    Évalue un seul individu.
+
+    Args:
+        sol (Individu): L'individu à évaluer
+        gameParams (dict): Paramètres du jeu
+
+    Returns:
+        float: Score de l'individu
+    """
     return eval_batch([sol], gameParams)[0]
 
 
 def optimize(taillePopulation, tailleSelection, pc, arch, gameParams, nbIterations, nbThreads, scoreMax):
+    """
+    Algorithme génétique principal pour optimiser les réseaux de neurones.
+
+    Args:
+        taillePopulation (int): Taille de la population
+        tailleSelection (int): Nombre d'individus à sélectionner
+        pc (float): Probabilité de croisement
+        arch (tuple): Architecture du réseau de neurones
+        gameParams (dict): Paramètres du jeu
+        nbIterations (int): Nombre d'itérations maximum
+        nbThreads (int): Nombre de threads (non utilisé)
+        scoreMax (float): Score maximum à atteindre
+
+    Returns:
+        NeuralNetwork: Meilleur réseau de neurones trouvé
+    """
     try:
-        # Initialisation de la population
+        # Initialisation
         start_time_total = time.time()
         population = initialization(taillePopulation, arch, gameParams)
+        mr = 2.0  # Taux de mutation
 
-        # Taux de mutation
-        mr = 2.0
-
-        # Boucle principale de l'algorithme génétique
+        # Boucle d'évolution
         for iteration in range(nbIterations):
             start_time_iter = time.time()
 
-            # Si le meilleur score dépasse le seuil, on arrête
+            # Condition d'arrêt si score maximum atteint
             if population[0].score >= scoreMax:
                 total_time = time.time() - start_time_total
                 print(
@@ -109,63 +159,59 @@ def optimize(taillePopulation, tailleSelection, pc, arch, gameParams, nbIteratio
             # Sélection des meilleurs individus
             selected = population[:tailleSelection]
 
-            # Génération de nouveaux individus par croisement et mutation
+            # Génération de nouveaux individus
             new_individuals = []
             children_to_evaluate = []
 
             while len(new_individuals) < taillePopulation - tailleSelection:
-                # Sélection aléatoire de deux parents parmi les meilleurs
+                # Sélection aléatoire des parents
                 parent1 = selected[numpy.random.randint(0, tailleSelection)]
                 parent2 = selected[numpy.random.randint(0, tailleSelection)]
 
-                # Croisement
+                # Croisement et mutation
                 child1, child2 = crossover(parent1, parent2, pc)
-
-                # Mutation
                 child1 = mutate(child1, mr)
                 child2 = mutate(child2, mr)
 
-                # Ajout des enfants pour évaluation groupée
+                # Ajout des enfants pour évaluation
                 children_to_evaluate.extend([child1, child2])
                 new_individuals.append(child1)
                 if len(new_individuals) < taillePopulation - tailleSelection:
                     new_individuals.append(child2)
 
-            # Évaluation groupée des enfants
+            # Évaluation des nouveaux individus
             eval_batch(children_to_evaluate, gameParams)
 
-            # Fusion de la population sélectionnée et des nouveaux individus
+            # Mise à jour de la population
             population = selected + new_individuals
-
-            # Tri de la population par score décroissant
             population.sort(reverse=True, key=lambda sol: sol.score)
 
-            # Calcul et affichage du temps
+            # Affichage des statistiques
             iter_time = time.time() - start_time_iter
             total_time = time.time() - start_time_total
             print(
                 f"Itération {iteration+1}/{nbIterations}, Meilleur score: {population[0].score:.4f} (Temps itération: {iter_time:.2f}s, Temps total: {total_time:.2f}s)")
 
+        # Retour du meilleur réseau
         total_time = time.time() - start_time_total
         print(
             f"Meilleur score final: {population[0].score:.4f} (Temps total: {total_time:.2f}s)")
         return population[0].nn
 
     finally:
-        # S'assurer que le pool est fermé à la fin
+        # Nettoyage
         close_pool()
 
 
-'''
-Représente une solution avec
-_un réseau de neurones
-_un score (à maximiser)
-
-vous pouvez ajouter des attributs ou méthodes si besoin
-'''
-
-
 class Individu:
+    """
+    Représente un individu dans l'algorithme génétique.
+
+    Attributs:
+        nn (NeuralNetwork): Le réseau de neurones de l'individu
+        score (float): Score de l'individu (à maximiser)
+    """
+
     def __init__(self, nn):
         self.nn = nn
         self.score = 0
@@ -174,31 +220,45 @@ class Individu:
         return self.score < other.score
 
 
-'''
-La méthode d'initialisation de la population est donnée :
-_on génère N individus contenant chacun un réseau de neurones (de même format)
-_on évalue et on trie des individus
-'''
-
-
 def initialization(taillePopulation, arch, gameParams):
+    """
+    Initialise la population initiale.
+
+    Args:
+        taillePopulation (int): Taille finale de la population
+        arch (tuple): Architecture du réseau de neurones
+        gameParams (dict): Paramètres du jeu
+
+    Returns:
+        list: Population initiale triée par score
+    """
     population = []
-    for i in range(taillePopulation):
+    # Génération d'une population plus grande pour sélectionner les meilleurs
+    for i in range(taillePopulation * 10):
         nn = NeuralNetwork((arch[0],))
         for j in range(1, len(arch)):
             nn.addLayer(arch[j], "elu")
         population.append(Individu(nn))
 
+    # Évaluation et sélection des meilleurs
     for sol in population:
         eval(sol, gameParams)
     population.sort(reverse=True, key=lambda sol: sol.score)
-
-    return population
-
-# Fonction de croisement entre deux parents pour générer deux enfants
+    return population[:taillePopulation]
 
 
 def crossover(parent1, parent2, pc):
+    """
+    Effectue le croisement entre deux parents pour créer deux enfants.
+
+    Args:
+        parent1 (Individu): Premier parent
+        parent2 (Individu): Deuxième parent
+        pc (float): Probabilité de croisement
+
+    Returns:
+        tuple: Les deux enfants créés
+    """
     # Tirage aléatoire pour déterminer si on fait un croisement
     if numpy.random.random() > pc:
         # Pas de croisement, on clone les parents
@@ -291,10 +351,18 @@ def crossover(parent1, parent2, pc):
 
     return child1, child2
 
-# Fonction de mutation d'un individu
-
 
 def mutate(individu, mr):
+    """
+    Applique des mutations aléatoires à un individu.
+
+    Args:
+        individu (Individu): L'individu à muter
+        mr (float): Taux de mutation
+
+    Returns:
+        Individu: L'individu muté
+    """
     for i, layer in enumerate(individu.nn.layers):
         # Calcul des probabilités de mutation
         pm_biais = mr / layer.outputShape[0]
